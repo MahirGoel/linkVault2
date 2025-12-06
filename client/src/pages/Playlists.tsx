@@ -78,6 +78,8 @@ export default function Playlists() {
     mutationFn: ({ playlistId, sharedWithUserId, canEdit }: { playlistId: string; sharedWithUserId: string; canEdit: boolean }) =>
       apiRequest("POST", "/api/shares", { playlistId, sharedWithUserId, canEdit }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shares/sent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shares/playlists"] });
       toast({ title: "Playlist shared successfully" });
     },
   });

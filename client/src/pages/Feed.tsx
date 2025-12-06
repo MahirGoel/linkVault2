@@ -123,6 +123,8 @@ export default function Feed() {
     mutationFn: ({ linkId, sharedWithUserId, canEdit }: { linkId: string; sharedWithUserId: string; canEdit: boolean }) =>
       apiRequest("POST", "/api/shares", { linkId, sharedWithUserId, canEdit }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shares/sent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shares/links"] });
       toast({ title: "Link shared successfully" });
     },
   });
