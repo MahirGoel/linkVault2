@@ -7,6 +7,9 @@ import {
   User,
   LogOut,
   Settings,
+  Tag,
+  Layers,
+  Command,
 } from "lucide-react";
 import {
   Sidebar,
@@ -14,6 +17,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -22,13 +26,24 @@ import {
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 
-const navItems = [
-  { title: "Feed", icon: LayoutDashboard, path: "/" },
-  { title: "My Links", icon: LinkIcon, path: "/links" },
-  { title: "Playlists", icon: FolderOpen, path: "/playlists" },
-  { title: "Shared", icon: Share2, path: "/shared" },
+const mainNavItems = [
+  { title: "Feed", icon: LayoutDashboard, path: "/", badge: null },
+  { title: "My Links", icon: LinkIcon, path: "/links", badge: "156" },
+  { title: "Playlists", icon: FolderOpen, path: "/playlists", badge: "8" },
+  { title: "Shared", icon: Share2, path: "/shared", badge: "5" },
+];
+
+const organizeNavItems = [
+  { title: "Tags", icon: Tag, path: "/tags" },
+  { title: "Categories", icon: Layers, path: "/categories" },
+];
+
+const accountNavItems = [
+  { title: "Account", icon: User, path: "/account" },
+  { title: "Settings", icon: Settings, path: "/settings" },
 ];
 
 export function AppSidebar() {
@@ -59,12 +74,65 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => (
+              {mainNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.path || (item.path === "/links" && location === "/")}
+                    data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}
+                  >
+                    <Link href={item.path}>
+                      <item.icon className="w-4 h-4" />
+                      <span className="flex-1">{item.title}</span>
+                      {item.badge && (
+                        <Badge variant="secondary" className="text-xs">
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Organize</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {organizeNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
                     isActive={location === item.path}
-                    data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}
+                    data-testid={`nav-${item.title.toLowerCase()}`}
+                  >
+                    <Link href={item.path}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Account</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {accountNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.path}
+                    data-testid={`nav-${item.title.toLowerCase()}`}
                   >
                     <Link href={item.path}>
                       <item.icon className="w-4 h-4" />
@@ -81,32 +149,14 @@ export function AppSidebar() {
 
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/account"}
-                  data-testid="nav-account"
-                >
-                  <Link href="/account">
-                    <User className="w-4 h-4" />
-                    <span>Account</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/settings"}
-                  data-testid="nav-settings"
-                >
-                  <Link href="/settings">
-                    <Settings className="w-4 h-4" />
-                    <span>Settings</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
+            <div className="px-2 py-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Command className="w-3 h-3" />
+                <span>Press</span>
+                <kbd className="px-1.5 py-0.5 text-xs font-mono bg-muted rounded">Cmd+K</kbd>
+                <span>for quick actions</span>
+              </div>
+            </div>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
