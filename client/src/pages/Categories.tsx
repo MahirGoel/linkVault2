@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Layers, Plus, Edit2, Trash2, Link as LinkIcon, Search, GripVertical } from "lucide-react";
+import { Layers, Plus, Edit2, Trash2, Search, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -14,25 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/EmptyState";
 import { useToast } from "@/hooks/use-toast";
-
-interface CategoryData {
-  id: string;
-  name: string;
-  description?: string;
-  linkCount: number;
-  icon?: string;
-  color?: string;
-}
-
-// todo: remove mock functionality
-const mockCategories: CategoryData[] = [
-  { id: "1", name: "Development", description: "Programming, coding, and software development resources", linkCount: 45, color: "#3b82f6" },
-  { id: "2", name: "Design", description: "UI/UX, graphics, and visual design", linkCount: 28, color: "#8b5cf6" },
-  { id: "3", name: "Marketing", description: "Digital marketing, SEO, and growth strategies", linkCount: 15, color: "#10b981" },
-  { id: "4", name: "Business", description: "Entrepreneurship, startups, and business resources", linkCount: 22, color: "#f59e0b" },
-  { id: "5", name: "Personal", description: "Personal interests and hobbies", linkCount: 18, color: "#ec4899" },
-  { id: "6", name: "Learning", description: "Courses, tutorials, and educational content", linkCount: 34, color: "#06b6d4" },
-];
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/contexts/AuthContext";
+import type { Category, Link } from "@shared/schema";
 
 const colorOptions = [
   "#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ec4899", "#06b6d4",
@@ -40,31 +25,74 @@ const colorOptions = [
 ];
 
 export default function Categories() {
-  const [categories, setCategories] = useState<CategoryData[]>(mockCategories);
+  const { isAuthenticated } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editCategory, setEditCategory] = useState<CategoryData | null>(null);
-  const [formData, setFormData] = useState({ name: "", description: "", color: colorOptions[0] });
+  const [editCategory, setEditCategory] = useState<Category | null>(null);
+  const [formData, setFormData] = useState({ name: "", color: colorOptions[0] });
   const { toast } = useToast();
 
-  const filteredCategories = categories.filter((c) =>
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  const { data: categories = [], isLoading } = useQuery<Category[]>({
+    queryKey: ["/api/categories"],
+    enabled: isAuthenticated,
+  });
+
+  const { data: links = [] } = useQuery<Link[]>({
+    queryKey: ["/api/links"],
+    enabled: isAuthenticated,
+  });
+
+  const createCategoryMutation = useMutation({
+    mutationFn: (data: { name: string; color: string }) =>
+      apiRequest("POST", "/api/categories", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      toast({ title: "Category created" });
+    },
+  });
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name: string; color: string } }) =>
+      apiRequest("PATCH", `/api/categories/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      toast({ title: "Category updated" });
+    },
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/categories/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      toast({ title: "Category deleted" });
+    },
+  });
+
+  const getCategoryLinkCount = (categoryName: string) => {
+    return links.filter((l) => l.category === categoryName).length;
+  };
+
+  const categoriesWithCounts = categories.map((c) => ({
+    ...c,
+    linkCount: getCategoryLinkCount(c.name),
+  }));
+
+  const filteredCategories = categoriesWithCounts.filter((c) =>
+    c.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const totalLinks = categories.reduce((sum, c) => sum + c.linkCount, 0);
+  const totalLinks = links.length;
 
   const openCreateDialog = () => {
     setEditCategory(null);
-    setFormData({ name: "", description: "", color: colorOptions[Math.floor(Math.random() * colorOptions.length)] });
+    setFormData({ name: "", color: colorOptions[Math.floor(Math.random() * colorOptions.length)] });
     setEditDialogOpen(true);
   };
 
-  const openEditDialog = (category: CategoryData) => {
+  const openEditDialog = (category: Category & { linkCount: number }) => {
     setEditCategory(category);
     setFormData({
       name: category.name,
-      description: category.description || "",
       color: category.color || colorOptions[0],
     });
     setEditDialogOpen(true);
@@ -74,29 +102,21 @@ export default function Categories() {
     if (!formData.name.trim()) return;
 
     if (editCategory) {
-      setCategories(categories.map((c) =>
-        c.id === editCategory.id
-          ? { ...c, name: formData.name.trim(), description: formData.description.trim(), color: formData.color }
-          : c
-      ));
-      toast({ title: "Category updated" });
+      updateCategoryMutation.mutate({
+        id: editCategory.id,
+        data: { name: formData.name.trim(), color: formData.color },
+      });
     } else {
-      const newCategory: CategoryData = {
-        id: Date.now().toString(),
+      createCategoryMutation.mutate({
         name: formData.name.trim(),
-        description: formData.description.trim(),
-        linkCount: 0,
         color: formData.color,
-      };
-      setCategories([...categories, newCategory]);
-      toast({ title: "Category created" });
+      });
     }
     setEditDialogOpen(false);
   };
 
   const handleDelete = (id: string) => {
-    setCategories(categories.filter((c) => c.id !== id));
-    toast({ title: "Category deleted" });
+    deleteCategoryMutation.mutate(id);
   };
 
   return (
@@ -127,7 +147,9 @@ export default function Categories() {
       </div>
 
       <div className="flex-1 overflow-auto px-4 md:px-8 py-4">
-        {filteredCategories.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        ) : filteredCategories.length === 0 ? (
           <EmptyState
             icon={Layers}
             title="No categories found"
@@ -137,7 +159,7 @@ export default function Categories() {
           />
         ) : (
           <div className="space-y-3 max-w-3xl">
-            {filteredCategories.map((category, index) => (
+            {filteredCategories.map((category) => (
               <Card
                 key={category.id}
                 className="p-4 hover-elevate group"
@@ -150,18 +172,13 @@ export default function Categories() {
 
                   <div
                     className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: `${category.color}20` }}
+                    style={{ backgroundColor: `${category.color || "#3b82f6"}20` }}
                   >
-                    <Layers className="w-6 h-6" style={{ color: category.color }} />
+                    <Layers className="w-6 h-6" style={{ color: category.color || "#3b82f6" }} />
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium">{category.name}</h3>
-                    {category.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-1">
-                        {category.description}
-                      </p>
-                    )}
                   </div>
 
                   <div className="flex items-center gap-4">
@@ -208,17 +225,6 @@ export default function Categories() {
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 data-testid="input-category-name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="category-description">Description (optional)</Label>
-              <Textarea
-                id="category-description"
-                placeholder="What kind of links go in this category?"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={2}
-                data-testid="input-category-description"
               />
             </div>
             <div className="space-y-2">

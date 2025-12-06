@@ -118,6 +118,51 @@ export default function Feed() {
     },
   });
 
+  // Share link mutation
+  const shareLinkMutation = useMutation({
+    mutationFn: ({ linkId, sharedWithUserId, canEdit }: { linkId: string; sharedWithUserId: string; canEdit: boolean }) =>
+      apiRequest("POST", "/api/shares", { linkId, sharedWithUserId, canEdit }),
+    onSuccess: () => {
+      toast({ title: "Link shared successfully" });
+    },
+  });
+
+  // Add link to playlist mutation
+  const addToPlaylistMutation = useMutation({
+    mutationFn: ({ playlistId, linkId }: { playlistId: string; linkId: string }) =>
+      apiRequest("POST", `/api/playlists/${playlistId}/links`, { linkId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/playlists"] });
+      toast({ title: "Added to playlist" });
+    },
+  });
+
+  // Create playlist mutation
+  const createPlaylistMutation = useMutation({
+    mutationFn: (data: { name: string; description: string }) =>
+      apiRequest("POST", "/api/playlists", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/playlists"] });
+      toast({ title: "Playlist created" });
+    },
+  });
+
+  // User search state
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  
+  // Fetch users for sharing
+  const { data: searchedUsers = [] } = useQuery<User[]>({
+    queryKey: ["/api/users/search", { q: userSearchQuery }],
+    enabled: userSearchQuery.length >= 2,
+  });
+
+  const availableUsers = searchedUsers.map((u) => ({
+    id: u.id,
+    name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email || "Unknown",
+    email: u.email || "",
+    avatar: u.profileImageUrl || undefined,
+  }));
+
   const categoryNames = categories.map((c) => c.name);
   const tagNames = tags.map((t) => t.name);
 
@@ -488,13 +533,18 @@ export default function Feed() {
           setSelectedLink(null);
         }}
         onShare={(userIds, canEdit) => {
-          toast({
-            title: "Shared successfully",
-            description: `Shared with ${userIds.length} user(s)`,
-          });
+          if (selectedLink) {
+            userIds.forEach((userId) => {
+              shareLinkMutation.mutate({
+                linkId: selectedLink.id,
+                sharedWithUserId: userId,
+                canEdit,
+              });
+            });
+          }
         }}
         title={`Share "${selectedLink?.title || "Link"}"`}
-        availableUsers={[]}
+        availableUsers={availableUsers}
       />
 
       <AddToPlaylistModal
@@ -504,10 +554,14 @@ export default function Feed() {
           setSelectedLink(null);
         }}
         onAdd={(playlistIds) => {
-          toast({
-            title: "Added to playlist",
-            description: `Added to ${playlistIds.length} playlist(s)`,
-          });
+          if (selectedLink) {
+            playlistIds.forEach((playlistId) => {
+              addToPlaylistMutation.mutate({
+                playlistId,
+                linkId: selectedLink.id,
+              });
+            });
+          }
         }}
         onCreateNew={() => setCreatePlaylistOpen(true)}
         playlists={playlists.map((p) => ({ id: p.id, name: p.name, linkCount: 0 }))}
@@ -518,7 +572,7 @@ export default function Feed() {
         open={createPlaylistOpen}
         onClose={() => setCreatePlaylistOpen(false)}
         onSave={(data) => {
-          toast({ title: "Playlist created", description: data.name });
+          createPlaylistMutation.mutate(data);
         }}
       />
     </div>

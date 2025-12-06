@@ -8,111 +8,147 @@ import { CreatePlaylistModal } from "@/components/CreatePlaylistModal";
 import { ShareDialog } from "@/components/ShareDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
-
-// todo: remove mock functionality
-const mockPlaylists: PlaylistData[] = [
-  {
-    id: "1",
-    name: "React Resources",
-    description: "Collection of useful React tutorials and documentation",
-    linkCount: 12,
-    isShared: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "2",
-    name: "Design Inspiration",
-    description: "UI/UX inspiration and design systems",
-    linkCount: 8,
-    isShared: false,
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-  {
-    id: "3",
-    name: "Learning Path",
-    description: "Courses and tutorials for skill development",
-    linkCount: 15,
-    isShared: true,
-    createdAt: new Date(Date.now() - 172800000).toISOString(),
-  },
-];
-
-const mockPlaylistLinks: LinkData[] = [
-  {
-    id: "1",
-    url: "https://react.dev",
-    title: "React Documentation",
-    description: "Official React documentation",
-    category: "Development",
-    tags: ["react", "docs"],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "2",
-    url: "https://react-query.tanstack.com",
-    title: "TanStack Query",
-    description: "Powerful async state management for React",
-    category: "Development",
-    tags: ["react", "query", "state"],
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-];
-
-const mockUsers = [
-  { id: "1", name: "John Doe", email: "john@example.com" },
-  { id: "2", name: "Jane Smith", email: "jane@example.com" },
-];
+import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/contexts/AuthContext";
+import type { Playlist, Link, User } from "@shared/schema";
 
 export default function Playlists() {
-  const [playlists, setPlaylists] = useState<PlaylistData[]>(mockPlaylists);
-  const [selectedPlaylist, setSelectedPlaylist] = useState<PlaylistData | null>(null);
-  const [playlistLinks, setPlaylistLinks] = useState<LinkData[]>(mockPlaylistLinks);
+  const { isAuthenticated } = useAuth();
+  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [editPlaylist, setEditPlaylist] = useState<PlaylistData | null>(null);
+  const [editPlaylist, setEditPlaylist] = useState<Playlist | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const { toast } = useToast();
 
-  const filteredPlaylists = playlists.filter((p) =>
+  const { data: playlists = [], isLoading } = useQuery<Playlist[]>({
+    queryKey: ["/api/playlists"],
+    enabled: isAuthenticated,
+  });
+
+  const { data: playlistLinks = [] } = useQuery<Link[]>({
+    queryKey: ["/api/playlists", selectedPlaylist?.id, "links"],
+    enabled: !!selectedPlaylist,
+  });
+
+  const { data: searchedUsers = [] } = useQuery<User[]>({
+    queryKey: ["/api/users/search", { q: userSearchQuery }],
+    enabled: userSearchQuery.length >= 2,
+  });
+
+  const createPlaylistMutation = useMutation({
+    mutationFn: (data: { name: string; description: string }) =>
+      apiRequest("POST", "/api/playlists", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/playlists"] });
+      toast({ title: "Playlist created" });
+    },
+  });
+
+  const updatePlaylistMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name: string; description: string } }) =>
+      apiRequest("PATCH", `/api/playlists/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/playlists"] });
+      toast({ title: "Playlist updated" });
+    },
+  });
+
+  const deletePlaylistMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/playlists/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/playlists"] });
+      toast({ title: "Playlist deleted" });
+    },
+  });
+
+  const removeLinkFromPlaylistMutation = useMutation({
+    mutationFn: ({ playlistId, linkId }: { playlistId: string; linkId: string }) =>
+      apiRequest("DELETE", `/api/playlists/${playlistId}/links/${linkId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/playlists", selectedPlaylist?.id, "links"] });
+      toast({ title: "Link removed from playlist" });
+    },
+  });
+
+  const sharePlaylistMutation = useMutation({
+    mutationFn: ({ playlistId, sharedWithUserId, canEdit }: { playlistId: string; sharedWithUserId: string; canEdit: boolean }) =>
+      apiRequest("POST", "/api/shares", { playlistId, sharedWithUserId, canEdit }),
+    onSuccess: () => {
+      toast({ title: "Playlist shared successfully" });
+    },
+  });
+
+  const playlistsWithCounts: PlaylistData[] = playlists.map((p) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description || undefined,
+    linkCount: 0,
+    isShared: p.isPublic || false,
+    createdAt: p.createdAt?.toISOString?.() || new Date().toISOString(),
+  }));
+
+  const filteredPlaylists = playlistsWithCounts.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleCreatePlaylist = (data: { name: string; description: string }) => {
     if (editPlaylist) {
-      setPlaylists(playlists.map((p) =>
-        p.id === editPlaylist.id ? { ...p, ...data } : p
-      ));
+      updatePlaylistMutation.mutate({ id: editPlaylist.id, data });
       setEditPlaylist(null);
     } else {
-      const newPlaylist: PlaylistData = {
-        id: Date.now().toString(),
-        name: data.name,
-        description: data.description,
-        linkCount: 0,
-        isShared: false,
-        createdAt: new Date().toISOString(),
-      };
-      setPlaylists([newPlaylist, ...playlists]);
+      createPlaylistMutation.mutate(data);
     }
   };
 
   const handleDeletePlaylist = (id: string) => {
-    setPlaylists(playlists.filter((p) => p.id !== id));
+    deletePlaylistMutation.mutate(id);
     if (selectedPlaylist?.id === id) {
       setSelectedPlaylist(null);
     }
   };
 
   const handleEditPlaylist = (playlist: PlaylistData) => {
-    setEditPlaylist(playlist);
-    setCreateModalOpen(true);
+    const originalPlaylist = playlists.find((p) => p.id === playlist.id);
+    if (originalPlaylist) {
+      setEditPlaylist(originalPlaylist);
+      setCreateModalOpen(true);
+    }
   };
 
   const handleSharePlaylist = (playlist: PlaylistData) => {
-    setSelectedPlaylist(playlist);
-    setShareDialogOpen(true);
+    const originalPlaylist = playlists.find((p) => p.id === playlist.id);
+    if (originalPlaylist) {
+      setSelectedPlaylist(originalPlaylist);
+      setShareDialogOpen(true);
+    }
   };
 
+  const handleShare = (userIds: string[], canEdit: boolean) => {
+    if (selectedPlaylist) {
+      userIds.forEach((userId) => {
+        sharePlaylistMutation.mutate({
+          playlistId: selectedPlaylist.id,
+          sharedWithUserId: userId,
+          canEdit,
+        });
+      });
+    }
+  };
+
+  const availableUsers = searchedUsers.map((u) => ({
+    id: u.id,
+    name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email || "Unknown",
+    email: u.email || "",
+    avatar: u.profileImageUrl || undefined,
+  }));
+
   if (selectedPlaylist) {
+    const selectedPlaylistData = playlistsWithCounts.find((p) => p.id === selectedPlaylist.id);
+    
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <div className="px-4 md:px-8 py-4 border-b">
@@ -132,11 +168,11 @@ export default function Playlists() {
                 <p className="text-muted-foreground mt-1">{selectedPlaylist.description}</p>
               )}
               <div className="flex items-center gap-2 mt-2">
-                <Badge variant="outline">{selectedPlaylist.linkCount} links</Badge>
-                {selectedPlaylist.isShared && <Badge variant="secondary">Shared</Badge>}
+                <Badge variant="outline">{playlistLinks.length} links</Badge>
+                {selectedPlaylist.isPublic && <Badge variant="secondary">Public</Badge>}
               </div>
             </div>
-            <Button onClick={() => handleSharePlaylist(selectedPlaylist)} data-testid="button-share-playlist">
+            <Button onClick={() => setShareDialogOpen(true)} data-testid="button-share-playlist">
               Share
             </Button>
           </div>
@@ -154,8 +190,21 @@ export default function Playlists() {
               {playlistLinks.map((link) => (
                 <LinkCard
                   key={link.id}
-                  link={link}
-                  onDelete={(id) => setPlaylistLinks(playlistLinks.filter((l) => l.id !== id))}
+                  link={{
+                    id: link.id,
+                    url: link.url,
+                    title: link.title || undefined,
+                    description: link.description || undefined,
+                    category: link.category || undefined,
+                    tags: link.tags || undefined,
+                    createdAt: link.createdAt?.toISOString?.() || new Date().toISOString(),
+                  }}
+                  onDelete={(id) =>
+                    removeLinkFromPlaylistMutation.mutate({
+                      playlistId: selectedPlaylist.id,
+                      linkId: id,
+                    })
+                  }
                 />
               ))}
             </div>
@@ -165,11 +214,9 @@ export default function Playlists() {
         <ShareDialog
           open={shareDialogOpen}
           onClose={() => setShareDialogOpen(false)}
-          onShare={(userIds, canEdit) => {
-            console.log("Shared playlist with:", userIds, "canEdit:", canEdit);
-          }}
+          onShare={handleShare}
           title={`Share "${selectedPlaylist.name}"`}
-          availableUsers={mockUsers}
+          availableUsers={availableUsers}
         />
       </div>
     );
@@ -195,7 +242,9 @@ export default function Playlists() {
       </div>
 
       <div className="flex-1 overflow-auto px-4 md:px-8 py-4">
-        {filteredPlaylists.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        ) : filteredPlaylists.length === 0 ? (
           <EmptyState
             icon={FolderOpen}
             title="No playlists yet"
@@ -209,7 +258,10 @@ export default function Playlists() {
               <PlaylistCard
                 key={playlist.id}
                 playlist={playlist}
-                onClick={() => setSelectedPlaylist(playlist)}
+                onClick={() => {
+                  const originalPlaylist = playlists.find((p) => p.id === playlist.id);
+                  if (originalPlaylist) setSelectedPlaylist(originalPlaylist);
+                }}
                 onEdit={handleEditPlaylist}
                 onDelete={handleDeletePlaylist}
                 onShare={handleSharePlaylist}

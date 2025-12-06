@@ -14,27 +14,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/EmptyState";
 import { useToast } from "@/hooks/use-toast";
-
-interface TagData {
-  id: string;
-  name: string;
-  linkCount: number;
-  color?: string;
-}
-
-// todo: remove mock functionality
-const mockTags: TagData[] = [
-  { id: "1", name: "javascript", linkCount: 24, color: "#f7df1e" },
-  { id: "2", name: "react", linkCount: 18, color: "#61dafb" },
-  { id: "3", name: "css", linkCount: 15, color: "#264de4" },
-  { id: "4", name: "frontend", linkCount: 32, color: "#e44d26" },
-  { id: "5", name: "backend", linkCount: 12, color: "#68a063" },
-  { id: "6", name: "api", linkCount: 8, color: "#6c5ce7" },
-  { id: "7", name: "tutorial", linkCount: 21, color: "#00b894" },
-  { id: "8", name: "tools", linkCount: 14, color: "#fd79a8" },
-  { id: "9", name: "design", linkCount: 19, color: "#a29bfe" },
-  { id: "10", name: "devops", linkCount: 7, color: "#636e72" },
-];
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/contexts/AuthContext";
+import type { Tag as TagType, Link } from "@shared/schema";
 
 const colorOptions = [
   "#f7df1e", "#61dafb", "#264de4", "#e44d26", "#68a063",
@@ -43,15 +26,60 @@ const colorOptions = [
 ];
 
 export default function Tags() {
-  const [tags, setTags] = useState<TagData[]>(mockTags);
+  const { isAuthenticated } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editTag, setEditTag] = useState<TagData | null>(null);
+  const [editTag, setEditTag] = useState<TagType | null>(null);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState(colorOptions[0]);
   const { toast } = useToast();
 
-  const filteredTags = tags.filter((t) =>
+  const { data: tags = [], isLoading } = useQuery<TagType[]>({
+    queryKey: ["/api/tags"],
+    enabled: isAuthenticated,
+  });
+
+  const { data: links = [] } = useQuery<Link[]>({
+    queryKey: ["/api/links"],
+    enabled: isAuthenticated,
+  });
+
+  const createTagMutation = useMutation({
+    mutationFn: (data: { name: string; color: string }) =>
+      apiRequest("POST", "/api/tags", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tags"] });
+      toast({ title: "Tag created" });
+    },
+  });
+
+  const updateTagMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name: string; color: string } }) =>
+      apiRequest("PATCH", `/api/tags/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tags"] });
+      toast({ title: "Tag updated" });
+    },
+  });
+
+  const deleteTagMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/tags/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tags"] });
+      toast({ title: "Tag deleted" });
+    },
+  });
+
+  const getTagLinkCount = (tagName: string) => {
+    return links.filter((l) => l.tags?.includes(tagName)).length;
+  };
+
+  const tagsWithCounts = tags.map((t) => ({
+    ...t,
+    linkCount: getTagLinkCount(t.name),
+  }));
+
+  const filteredTags = tagsWithCounts.filter((t) =>
     t.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -64,7 +92,7 @@ export default function Tags() {
     setEditDialogOpen(true);
   };
 
-  const openEditDialog = (tag: TagData) => {
+  const openEditDialog = (tag: TagType & { linkCount: number }) => {
     setEditTag(tag);
     setNewTagName(tag.name);
     setNewTagColor(tag.color || colorOptions[0]);
@@ -75,26 +103,21 @@ export default function Tags() {
     if (!newTagName.trim()) return;
 
     if (editTag) {
-      setTags(tags.map((t) =>
-        t.id === editTag.id ? { ...t, name: newTagName.trim().toLowerCase(), color: newTagColor } : t
-      ));
-      toast({ title: "Tag updated" });
+      updateTagMutation.mutate({
+        id: editTag.id,
+        data: { name: newTagName.trim().toLowerCase(), color: newTagColor },
+      });
     } else {
-      const newTag: TagData = {
-        id: Date.now().toString(),
+      createTagMutation.mutate({
         name: newTagName.trim().toLowerCase(),
-        linkCount: 0,
         color: newTagColor,
-      };
-      setTags([...tags, newTag]);
-      toast({ title: "Tag created" });
+      });
     }
     setEditDialogOpen(false);
   };
 
   const handleDelete = (id: string) => {
-    setTags(tags.filter((t) => t.id !== id));
-    toast({ title: "Tag deleted" });
+    deleteTagMutation.mutate(id);
   };
 
   return (
@@ -123,7 +146,9 @@ export default function Tags() {
       </div>
 
       <div className="flex-1 overflow-auto px-4 md:px-8 py-4">
-        {sortedTags.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        ) : sortedTags.length === 0 ? (
           <EmptyState
             icon={Tag}
             title="No tags found"
@@ -143,9 +168,9 @@ export default function Tags() {
                   <div className="flex items-center gap-3">
                     <div
                       className="w-10 h-10 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${tag.color}20` }}
+                      style={{ backgroundColor: `${tag.color || "#6c5ce7"}20` }}
                     >
-                      <Tag className="w-5 h-5" style={{ color: tag.color }} />
+                      <Tag className="w-5 h-5" style={{ color: tag.color || "#6c5ce7" }} />
                     </div>
                     <div>
                       <p className="font-mono font-medium">{tag.name}</p>
