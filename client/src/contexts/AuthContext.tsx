@@ -1,15 +1,11 @@
-import { createContext, useContext, useState } from "react";
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  avatar?: string;
-}
+import { createContext, useContext, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { User } from "@shared/schema";
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
   login: () => void;
   logout: () => void;
 }
@@ -17,32 +13,29 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // todo: remove mock functionality - replace with real Google OAuth
-  const [user, setUser] = useState<User | null>({
-    id: "1",
-    name: "Alex Johnson",
-    email: "alex@example.com",
-    avatar: undefined,
+  const queryClient = useQueryClient();
+
+  const { data: user, isLoading, error } = useQuery<User>({
+    queryKey: ["/api/auth/user"],
+    retry: false,
+    staleTime: 1000 * 60 * 5,
   });
 
   const login = () => {
-    // todo: implement real Google OAuth login
-    setUser({
-      id: "1",
-      name: "Alex Johnson",
-      email: "alex@example.com",
-    });
+    window.location.href = "/api/login";
   };
 
   const logout = () => {
-    setUser(null);
+    queryClient.clear();
+    window.location.href = "/api/logout";
   };
 
   return (
     <AuthContext.Provider
       value={{
-        user,
-        isAuthenticated: !!user,
+        user: user ?? null,
+        isAuthenticated: !!user && !error,
+        isLoading,
         login,
         logout,
       }}
